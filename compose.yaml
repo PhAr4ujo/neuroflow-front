@@ -1,0 +1,24 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    environment:
+      VITE_HOST: 0.0.0.0
+      VITE_PORT: ${VITE_PORT:-5174}
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
+    ports:
+      - "${VITE_PORT:-5174}:${VITE_PORT:-5174}"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - npm_cache:/root/.npm
+      - cypress_cache:/root/.cache/Cypress
+    stdin_open: true
+    tty: true
+
+volumes:
+  node_modules:
+  npm_cache:
+  cypress_cache:
