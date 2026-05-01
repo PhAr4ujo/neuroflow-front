@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
 import SelectButton from 'primevue/selectbutton'
 import Tag from 'primevue/tag'
+import { persistLocale, supportedLocales, type Locale } from './i18n'
 
 type ModeKey = 'focus' | 'relax' | 'sleep'
+
+type ModeConfig = {
+  key: ModeKey
+  frequency: string
+  accent: string
+  soft: string
+  ink: string
+  progress: number
+  icon: string
+}
 
 type Mode = {
   key: ModeKey
@@ -21,15 +33,49 @@ type Mode = {
   icon: string
 }
 
-const modes: Mode[] = [
+type PillarKey = 'subscription' | 'tracking' | 'server'
+
+type PillarConfig = {
+  key: PillarKey
+  icon: string
+}
+
+const { t, locale } = useI18n()
+
+const isLocale = (value: string): value is Locale =>
+  supportedLocales.some((language) => language.code === value)
+
+const currentLocale = computed<Locale>({
+  get: () => (isLocale(locale.value) ? locale.value : 'pt-BR'),
+  set: (value) => {
+    locale.value = value
+  },
+})
+
+const languageMenuRef = ref<HTMLDetailsElement | null>(null)
+const currentLanguageLabel = computed(
+  () =>
+    supportedLocales.find((language) => language.code === currentLocale.value)?.label ?? 'PT-BR',
+)
+
+const selectLocale = (value: Locale) => {
+  currentLocale.value = value
+  languageMenuRef.value?.removeAttribute('open')
+}
+
+watch(
+  currentLocale,
+  (value) => {
+    document.documentElement.lang = value
+    persistLocale(value)
+  },
+  { immediate: true },
+)
+
+const modeConfigs: ModeConfig[] = [
   {
     key: 'focus',
-    label: 'Foco',
-    title: 'Foco profundo',
-    subtitle: 'Pulsos beta discretos para blocos de trabalho sem distração.',
     frequency: '14 Hz',
-    description:
-      'Batidas binaurais e ritmos isocrônicos calibrados para manter atenção estável enquanto o sintetizador procedural cria variações contínuas.',
     accent: '#6ee7d8',
     soft: '#d9fff8',
     ink: '#09231f',
@@ -38,12 +84,7 @@ const modes: Mode[] = [
   },
   {
     key: 'relax',
-    label: 'Relaxar',
-    title: 'Relaxamento real',
-    subtitle: 'Texturas theta para desacelerar o ruído mental.',
     frequency: '6 Hz',
-    description:
-      'Camadas ambientes, ruído filtrado e ciclos lentos ajudam o corpo a sair do estado de alerta sem depender de streaming externo.',
     accent: '#f6c177',
     soft: '#fff0d6',
     ink: '#2f1c08',
@@ -52,12 +93,7 @@ const modes: Mode[] = [
   },
   {
     key: 'sleep',
-    label: 'Sono',
-    title: 'Sono de verdade',
-    subtitle: 'Ondas delta com fade automático para adormecer.',
     frequency: '2 Hz',
-    description:
-      'Sessões longas reduzem intensidade aos poucos e encerram sozinhas, mantendo tudo local no browser e longe de rastreamento.',
     accent: '#b9a7ff',
     soft: '#ebe6ff',
     ink: '#17102f',
@@ -66,43 +102,56 @@ const modes: Mode[] = [
   },
 ]
 
-const pillars = [
+const pillarConfigs: PillarConfig[] = [
   {
-    title: 'Sem assinatura',
-    text: 'O app nasce para rodar localmente, com código aberto e sem bloqueio por mensalidade.',
+    key: 'subscription',
     icon: 'pi pi-wallet',
   },
   {
-    title: 'Sem rastreamento',
-    text: 'Sessões, preferências e histórico podem ficar no seu dispositivo, sem analytics obrigatórios.',
+    key: 'tracking',
     icon: 'pi pi-shield',
   },
   {
-    title: 'Sem servidor obrigatório',
-    text: 'A geração sonora acontece no browser, usando síntese procedural e presets versionados.',
+    key: 'server',
     icon: 'pi pi-wifi',
   },
 ]
 
-const steps = [
-  'Escolha foco, relaxamento ou sono.',
-  'A engine monta camadas, pulsos e envelopes em tempo real.',
-  'Você ajusta duração e intensidade sem enviar dados para terceiros.',
-]
+const modeFromConfig = (mode: ModeConfig): Mode => ({
+  ...mode,
+  label: t(`modes.${mode.key}.label`),
+  title: t(`modes.${mode.key}.title`),
+  subtitle: t(`modes.${mode.key}.subtitle`),
+  description: t(`modes.${mode.key}.description`),
+})
 
-const modeOptions = modes.map((mode) => ({
-  label: mode.label,
-  value: mode.key,
-}))
+const modes = computed<Mode[]>(() => modeConfigs.map(modeFromConfig))
+
+const pillars = computed(() =>
+  pillarConfigs.map((pillar) => ({
+    icon: pillar.icon,
+    title: t(`privacy.pillars.${pillar.key}.title`),
+    text: t(`privacy.pillars.${pillar.key}.text`),
+  })),
+)
+
+const steps = computed(() => [0, 1, 2].map((index) => t(`process.steps.${index}`)))
+
+const modeOptions = computed(() =>
+  modes.value.map((mode) => ({
+    label: mode.label,
+    value: mode.key,
+  })),
+)
 
 const selectedMode = ref<ModeKey>('focus')
 const isPlaying = ref(true)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const bars = Array.from({ length: 34 }, (_, index) => index)
-const defaultMode = modes[0]!
 
 const activeMode = computed<Mode>(
-  () => modes.find((mode) => mode.key === selectedMode.value) ?? defaultMode,
+  () =>
+    modes.value.find((mode) => mode.key === selectedMode.value) ?? modeFromConfig(modeConfigs[0]!),
 )
 
 const pageStyle = computed(
@@ -253,183 +302,205 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="neuro-page dark min-h-screen overflow-hidden text-[#f7fbf8]" :style="pageStyle">
-    <section
-      class="relative isolate flex h-[86svh] min-h-[520px] flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8"
-    >
+    <section class="relative isolate overflow-hidden px-4 pb-20 pt-4 sm:px-6 lg:px-8">
       <canvas ref="canvasRef" aria-hidden="true" class="absolute inset-0 -z-20 h-full w-full" />
       <div aria-hidden="true" class="hero-vignette absolute inset-0 -z-10" />
+      <div aria-hidden="true" class="section-flow-bg section-flow-bg--modes" />
 
-      <header
-        class="mx-auto flex w-[calc(100vw-2rem)] max-w-7xl items-center justify-between rounded-full border border-white/10 bg-black/45 px-3 py-2 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-xl sm:w-full"
-      >
-        <a href="#" class="flex min-w-0 items-center gap-3 text-white">
-          <span
-            class="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 bg-white/8"
-            aria-hidden="true"
-          >
-            <span class="logo-mark" />
-          </span>
-          <span class="text-base font-semibold">NeuroFlow</span>
-        </a>
-
-        <nav class="hidden items-center gap-1 text-sm text-white/70 md:flex" aria-label="Principal">
-          <a
-            class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
-            href="#modos"
-          >
-            Modos
-          </a>
-          <a
-            class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
-            href="#privacidade"
-          >
-            Privacidade
-          </a>
-          <a
-            class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
-            href="#como-funciona"
-          >
-            Como funciona
-          </a>
-        </nav>
-
-        <Button
-          as="a"
-          href="#opensource"
-          label="GitHub"
-          icon="pi pi-github"
-          severity="secondary"
-          rounded
-          size="small"
-          class="!hidden !border-white/12 !bg-white/10 !text-white hover:!bg-white/16 sm:!inline-flex"
-        />
-        <a
-          href="#opensource"
-          class="grid size-10 place-items-center rounded-full border border-white/12 bg-white/10 text-white transition hover:bg-white/16 sm:hidden"
-          aria-label="GitHub"
+      <div class="relative flex min-h-[86svh] flex-col">
+        <header
+          class="site-header mx-auto flex max-w-7xl items-center justify-start gap-3 rounded-full border border-white/10 bg-black/45 px-3 py-2 shadow-[0_20px_80px_rgba(0,0,0,0.28)] backdrop-blur-xl sm:justify-between sm:gap-0"
         >
-          <i class="pi pi-github" />
-        </a>
-      </header>
-
-      <div
-        class="mx-auto grid w-[calc(100vw-2rem)] max-w-7xl flex-1 items-center gap-8 py-6 sm:w-full md:grid-cols-[minmax(0,1fr)_minmax(330px,0.64fr)] md:py-8"
-      >
-        <div class="w-full min-w-0 max-w-[22rem] sm:max-w-2xl lg:max-w-4xl">
-          <div class="flex flex-wrap gap-2">
-            <Tag value="Open source" class="!bg-white/12 !text-white" />
-            <Tag value="Tudo no browser" class="!bg-[var(--mode-soft)] !text-[var(--mode-ink)]" />
-            <Tag value="Sem tracking" class="!bg-white/12 !text-white" />
-          </div>
-
-          <h1 class="mt-6 text-5xl font-semibold leading-none text-white sm:text-6xl lg:text-8xl">
-            NeuroFlow
-          </h1>
-          <p class="mt-5 max-w-full text-lg leading-8 text-white/78 sm:max-w-2xl sm:text-xl">
-            Música funcional procedural para foco, relaxamento e sono. Uma alternativa open source
-            ao Brain.fm, sem assinatura, sem rastreamento e sem servidores obrigatórios.
-          </p>
-
-          <div class="mt-7 flex w-full max-w-[22rem] flex-col gap-3 sm:max-w-none sm:flex-row">
-            <Button
-              as="a"
-              href="#modos"
-              label="Começar agora"
-              icon="pi pi-play"
-              rounded
-              class="!w-full !justify-center !border-0 !bg-[var(--mode-accent)] !px-6 !py-3 !font-semibold !text-[#06100e] hover:!brightness-110 sm:!w-auto"
-            />
-            <Button
-              as="a"
-              href="#como-funciona"
-              label="Ver a engine"
-              icon="pi pi-arrow-down"
-              rounded
-              outlined
-              class="!w-full !justify-center !border-white/18 !px-6 !py-3 !text-white hover:!bg-white/10 sm:!w-auto"
-            />
-          </div>
-        </div>
-
-        <aside
-          class="player-shell hidden rounded-[8px] border border-white/12 bg-[#07100e]/82 p-4 shadow-[0_24px_90px_rgba(0,0,0,0.38)] backdrop-blur-2xl md:block"
-          aria-label="Prévia do player NeuroFlow"
-        >
-          <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <p class="text-sm text-white/55">Sessão ativa</p>
-              <h2 class="mt-1 truncate text-2xl font-semibold">{{ activeMode.title }}</h2>
-            </div>
-            <button
-              class="grid size-12 shrink-0 place-items-center rounded-full border border-white/12 bg-white/10 text-white transition hover:bg-white/16"
-              type="button"
-              :aria-label="isPlaying ? 'Pausar prévia' : 'Tocar prévia'"
-              @click="isPlaying = !isPlaying"
+          <a href="#" class="flex min-w-0 items-center gap-3 text-white">
+            <span
+              class="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 bg-white/8"
+              aria-hidden="true"
             >
-              <i :class="isPlaying ? 'pi pi-pause' : 'pi pi-play'" />
-            </button>
-          </div>
+              <span class="logo-mark" />
+            </span>
+            <span class="text-base font-semibold">NeuroFlow</span>
+          </a>
 
-          <SelectButton
-            v-model="selectedMode"
-            :options="modeOptions"
-            option-label="label"
-            option-value="value"
-            :allow-empty="false"
-            class="mode-switch mt-5 w-full"
-            aria-label="Selecionar modo"
-          />
+          <nav
+            class="hidden items-center gap-1 text-sm text-white/70 md:flex"
+            :aria-label="t('nav.label')"
+          >
+            <a
+              class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
+              href="#modos"
+            >
+              {{ t('nav.modes') }}
+            </a>
+            <a
+              class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
+              href="#privacidade"
+            >
+              {{ t('nav.privacy') }}
+            </a>
+            <a
+              class="rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-white"
+              href="#como-funciona"
+            >
+              {{ t('nav.howItWorks') }}
+            </a>
+          </nav>
 
-          <div class="mt-7 rounded-[8px] border border-white/10 bg-white/[0.035] p-5">
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <p class="text-sm text-[var(--mode-accent)]">{{ activeMode.frequency }}</p>
-                <p class="mt-2 max-w-xs text-base leading-7 text-white/70">
-                  {{ activeMode.subtitle }}
-                </p>
+          <div class="flex items-center gap-2">
+            <details ref="languageMenuRef" class="language-menu">
+              <summary :aria-label="t('language.label')" class="language-trigger">
+                <span>{{ currentLanguageLabel }}</span>
+                <i class="pi pi-chevron-down text-[0.65rem]" aria-hidden="true" />
+              </summary>
+              <div class="language-list">
+                <button
+                  v-for="language in supportedLocales"
+                  :key="language.code"
+                  class="language-option"
+                  :class="{ 'language-option--active': currentLocale === language.code }"
+                  type="button"
+                  @click="selectLocale(language.code)"
+                >
+                  {{ language.label }}
+                </button>
               </div>
-              <span
-                class="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--mode-soft)] text-[var(--mode-ink)]"
-              >
-                <i :class="activeMode.icon" />
-              </span>
+            </details>
+
+            <Button
+              as="a"
+              href="#opensource"
+              label="GitHub"
+              icon="pi pi-github"
+              severity="secondary"
+              rounded
+              size="small"
+              class="!hidden !border-white/12 !bg-white/10 !text-white hover:!bg-white/16 sm:!inline-flex"
+            />
+            <a
+              href="#opensource"
+              class="hidden size-10 place-items-center rounded-full border border-white/12 bg-white/10 text-white transition hover:bg-white/16"
+              aria-label="GitHub"
+            >
+              <i class="pi pi-github" />
+            </a>
+          </div>
+        </header>
+
+        <div
+          class="mx-auto grid w-[calc(100vw-2rem)] max-w-7xl flex-1 items-center gap-8 py-6 sm:w-full md:grid-cols-[minmax(0,1fr)_minmax(330px,0.64fr)] md:py-8"
+        >
+          <div class="w-full min-w-0 max-w-[22rem] sm:max-w-2xl lg:max-w-4xl">
+            <div class="flex flex-wrap gap-2">
+              <Tag :value="t('hero.tags.openSource')" class="!bg-white/12 !text-white" />
+              <Tag
+                :value="t('hero.tags.browserOnly')"
+                class="!bg-[var(--mode-soft)] !text-[var(--mode-ink)]"
+              />
+              <Tag :value="t('hero.tags.noTracking')" class="!bg-white/12 !text-white" />
             </div>
 
-            <div class="mt-8 flex h-28 items-end gap-1.5" aria-hidden="true">
-              <span
-                v-for="bar in bars"
-                :key="bar"
-                class="wave-bar flex-1 rounded-full bg-[var(--mode-accent)]/80"
-                :style="barStyle(bar)"
+            <h1 class="mt-6 text-5xl font-semibold leading-none text-white sm:text-6xl lg:text-8xl">
+              NeuroFlow
+            </h1>
+            <p class="mt-5 max-w-full text-lg leading-8 text-white/78 sm:max-w-2xl sm:text-xl">
+              {{ t('hero.copy') }}
+            </p>
+
+            <div class="mt-7 flex w-full max-w-[22rem] flex-col gap-3 sm:max-w-none sm:flex-row">
+              <Button
+                as="a"
+                href="#modos"
+                :label="t('hero.start')"
+                icon="pi pi-play"
+                rounded
+                class="!w-full !justify-center !border-0 !bg-[var(--mode-accent)] !px-6 !py-3 !font-semibold !text-[#06100e] hover:!brightness-110 sm:!w-auto"
+              />
+              <Button
+                as="a"
+                href="#como-funciona"
+                :label="t('hero.engine')"
+                icon="pi pi-arrow-down"
+                rounded
+                outlined
+                class="!w-full !justify-center !border-white/18 !px-6 !py-3 !text-white hover:!bg-white/10 sm:!w-auto"
               />
             </div>
-
-            <ProgressBar
-              :value="activeMode.progress"
-              :show-value="false"
-              class="neuro-progress mt-6"
-            />
           </div>
-        </aside>
-      </div>
-    </section>
 
-    <section
-      id="modos"
-      class="relative -mt-32 overflow-hidden px-4 pb-20 pt-52 text-white sm:px-6 lg:px-8"
-    >
-      <div aria-hidden="true" class="section-flow-bg section-flow-bg--modes" />
-      <div class="relative mx-auto max-w-7xl">
+          <aside
+            class="player-shell hidden rounded-[8px] border border-white/12 bg-[#07100e]/82 p-4 shadow-[0_24px_90px_rgba(0,0,0,0.38)] backdrop-blur-2xl md:block"
+            :aria-label="t('player.preview')"
+          >
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <p class="text-sm text-white/55">{{ t('player.sessionActive') }}</p>
+                <h2 class="mt-1 truncate text-2xl font-semibold">{{ activeMode.title }}</h2>
+              </div>
+              <button
+                class="grid size-12 shrink-0 place-items-center rounded-full border border-white/12 bg-white/10 text-white transition hover:bg-white/16"
+                type="button"
+                :aria-label="isPlaying ? t('player.pause') : t('player.play')"
+                @click="isPlaying = !isPlaying"
+              >
+                <i :class="isPlaying ? 'pi pi-pause' : 'pi pi-play'" />
+              </button>
+            </div>
+
+            <SelectButton
+              v-model="selectedMode"
+              :options="modeOptions"
+              option-label="label"
+              option-value="value"
+              :allow-empty="false"
+              class="mode-switch mt-5 w-full"
+              :aria-label="t('player.selectMode')"
+            />
+
+            <div class="mt-7 rounded-[8px] border border-white/10 bg-white/[0.035] p-5">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-sm text-[var(--mode-accent)]">{{ activeMode.frequency }}</p>
+                  <p class="mt-2 max-w-xs text-base leading-7 text-white/70">
+                    {{ activeMode.subtitle }}
+                  </p>
+                </div>
+                <span
+                  class="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--mode-soft)] text-[var(--mode-ink)]"
+                >
+                  <i :class="activeMode.icon" />
+                </span>
+              </div>
+
+              <div class="mt-8 flex h-28 items-end gap-1.5" aria-hidden="true">
+                <span
+                  v-for="bar in bars"
+                  :key="bar"
+                  class="wave-bar flex-1 rounded-full bg-[var(--mode-accent)]/80"
+                  :style="barStyle(bar)"
+                />
+              </div>
+
+              <ProgressBar
+                :value="activeMode.progress"
+                :show-value="false"
+                class="neuro-progress mt-6"
+              />
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <div id="modos" class="relative mx-auto max-w-7xl pt-14 sm:pt-20">
         <div class="grid gap-8 lg:grid-cols-[0.78fr_1fr] lg:items-end">
           <div>
-            <p class="text-sm font-semibold uppercase text-[#6ee7d8]">Três estados mentais</p>
+            <p class="text-sm font-semibold uppercase text-[#6ee7d8]">
+              {{ t('modesSection.eyebrow') }}
+            </p>
             <h2 class="mt-3 text-4xl font-semibold leading-tight sm:text-5xl">
-              Escolha o ritmo do seu sistema nervoso.
+              {{ t('modesSection.title') }}
             </h2>
           </div>
           <p class="max-w-2xl text-lg leading-8 text-white/68 lg:justify-self-end">
-            Cada modo combina uma faixa neural, envelopes de volume, texturas e variação procedural
-            para evitar loops cansativos.
+            {{ t('modesSection.copy') }}
           </p>
         </div>
 
@@ -459,9 +530,11 @@ onBeforeUnmount(() => {
     <section id="privacidade" class="bg-[#06100e] px-4 py-16 text-white sm:px-6 lg:px-8">
       <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.72fr_1fr] lg:items-center">
         <div>
-          <p class="text-sm font-semibold uppercase text-[#6ee7d8]">Privacidade por design</p>
+          <p class="text-sm font-semibold uppercase text-[#6ee7d8]">
+            {{ t('privacy.eyebrow') }}
+          </p>
           <h2 class="mt-3 text-4xl font-semibold leading-tight sm:text-5xl">
-            Funcional sem virar mais uma conta para gerenciar.
+            {{ t('privacy.title') }}
           </h2>
         </div>
 
@@ -490,7 +563,7 @@ onBeforeUnmount(() => {
         >
           <div class="sound-lab rounded-[8px] p-5 text-white">
             <div class="flex items-center justify-between">
-              <span class="text-sm text-white/62">Engine local</span>
+              <span class="text-sm text-white/62">{{ t('process.engineLocal') }}</span>
               <span class="rounded-full bg-white/10 px-3 py-1 text-xs">Web Audio API</span>
             </div>
             <div class="mt-10 grid grid-cols-12 items-end gap-2" aria-hidden="true">
@@ -502,17 +575,25 @@ onBeforeUnmount(() => {
               />
             </div>
             <div class="mt-8 grid gap-3 sm:grid-cols-3">
-              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">Osciladores</span>
-              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">Filtros</span>
-              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">Envelopes</span>
+              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">
+                {{ t('process.oscillators') }}
+              </span>
+              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">
+                {{ t('process.filters') }}
+              </span>
+              <span class="rounded-[8px] bg-white/10 px-4 py-3 text-sm">
+                {{ t('process.envelopes') }}
+              </span>
             </div>
           </div>
         </div>
 
         <div>
-          <p class="text-sm font-semibold uppercase text-[#6ee7d8]">Como funciona</p>
+          <p class="text-sm font-semibold uppercase text-[#6ee7d8]">
+            {{ t('process.eyebrow') }}
+          </p>
           <h2 class="mt-3 text-4xl font-semibold leading-tight sm:text-5xl">
-            Síntese procedural, não playlist infinita.
+            {{ t('process.title') }}
           </h2>
           <ol class="mt-8 space-y-4">
             <li
@@ -537,9 +618,11 @@ onBeforeUnmount(() => {
         class="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 border-t border-white/10 pt-10 md:flex-row md:items-center"
       >
         <div>
-          <p class="text-sm font-semibold uppercase text-[#b9a7ff]">Código aberto</p>
+          <p class="text-sm font-semibold uppercase text-[#b9a7ff]">
+            {{ t('openSource.eyebrow') }}
+          </p>
           <h2 class="mt-3 max-w-3xl text-4xl font-semibold leading-tight sm:text-5xl">
-            Uma alternativa que você pode auditar, modificar e hospedar onde quiser.
+            {{ t('openSource.title') }}
           </h2>
         </div>
         <Button
@@ -547,7 +630,7 @@ onBeforeUnmount(() => {
           href="https://github.com"
           target="_blank"
           rel="noreferrer"
-          label="Ver repositório"
+          :label="t('openSource.repo')"
           icon="pi pi-github"
           rounded
           class="!border-[#6ee7d8]/40 !bg-[#6ee7d8]/10 !px-6 !py-3 !font-semibold !text-[#d9fff8] hover:!bg-[#6ee7d8]/18"
@@ -569,6 +652,121 @@ onBeforeUnmount(() => {
     linear-gradient(180deg, #06100e 0%, #081512 46%, #06100e 100%);
 }
 
+.site-header {
+  width: calc(100vw - 2rem);
+}
+
+.language-menu {
+  position: relative;
+  z-index: 40;
+  flex-shrink: 0;
+}
+
+.language-trigger {
+  display: inline-flex;
+  height: 2.5rem;
+  min-width: 5.75rem;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0 0.78rem 0 0.95rem;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.language-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.language-menu[open] .language-trigger {
+  border-color: color-mix(in srgb, var(--mode-accent), white 10%);
+  background: color-mix(in srgb, var(--mode-accent), transparent 86%);
+  color: var(--mode-accent);
+}
+
+.language-menu[open] .language-trigger i {
+  transform: rotate(180deg);
+}
+
+.language-list {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: 8rem;
+  height: 8.25rem;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--mode-accent) rgba(255, 255, 255, 0.08);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  touch-action: pan-y;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(7, 16, 14, 0.96);
+  padding: 0.35rem;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px);
+  z-index: 80;
+}
+
+.language-list::-webkit-scrollbar {
+  width: 0.42rem;
+}
+
+.language-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.language-list::-webkit-scrollbar-thumb {
+  background: var(--mode-accent);
+  border-radius: 999px;
+}
+
+.language-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0.52rem 0.72rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: left;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.language-option:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.language-option--active {
+  background: var(--mode-accent);
+  color: #06100e;
+}
+
+@media (min-width: 640px) {
+  .site-header {
+    width: 100%;
+  }
+}
+
 .hero-vignette {
   background:
     radial-gradient(
@@ -582,9 +780,14 @@ onBeforeUnmount(() => {
 .hero-vignette::after {
   content: '';
   position: absolute;
-  inset: auto 0 -1px;
-  height: 180px;
-  background: linear-gradient(180deg, rgba(6, 16, 14, 0), #06100e 82%);
+  inset: auto 0 -210px;
+  height: 390px;
+  background: linear-gradient(
+    180deg,
+    rgba(6, 16, 14, 0),
+    rgba(6, 16, 14, 0.92) 48%,
+    rgba(6, 16, 14, 0) 100%
+  );
 }
 
 .section-flow-bg {
@@ -604,8 +807,8 @@ onBeforeUnmount(() => {
     linear-gradient(
       180deg,
       rgba(6, 16, 14, 0) 0%,
-      rgba(6, 16, 14, 0) 22%,
-      rgba(9, 26, 23, 0.56) 42%,
+      rgba(6, 16, 14, 0) 36%,
+      rgba(9, 26, 23, 0.48) 54%,
       rgba(10, 24, 21, 0.78) 68%,
       rgba(6, 16, 14, 0) 100%
     );

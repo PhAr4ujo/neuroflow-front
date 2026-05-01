@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { mount } from '@vue/test-utils'
 import App from '../App.vue'
+import { i18n } from '../i18n'
 
 beforeAll(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn()
@@ -13,7 +14,14 @@ beforeAll(() => {
 
 describe('App', () => {
   it('mounts renders properly', () => {
-    const wrapper = mount(App)
+    i18n.global.locale.value = 'pt-BR'
+
+    const wrapper = mount(App, {
+      global: {
+        plugins: [i18n],
+      },
+    })
+
     expect(wrapper.text()).toContain('NeuroFlow')
     expect(wrapper.text()).toContain('Foco profundo')
   })
